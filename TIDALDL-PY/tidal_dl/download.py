@@ -139,57 +139,62 @@ def downloadVideo(video: Video, album: Album = None, playlist: Playlist = None):
 
 
 def downloadTrack(track: Track, album=None, playlist=None, userProgress=None, partSize=1048576):
-    try:
-        stream = TIDAL_API.getStreamUrl(track.id, SETTINGS.audioQuality)
-        path = getTrackPath(track, stream, album, playlist)
+    qualities = [AudioQuality.Max, AudioQuality.Master, AudioQuality.HiFi, AudioQuality.High, AudioQuality.Normal]
+    last_error = ''
 
-        if SETTINGS.showTrackInfo and not SETTINGS.multiThread:
-            Printf.track(track, stream)
-
-        if userProgress is not None:
-            userProgress.updateStream(stream)
-
-        # check exist
-        if __isSkip__(path, stream.url):
-            Printf.success(aigpy.path.getFileName(path) + " (skip:already exists!)")
-            return True, ''
-
-        # download
-        logging.info("[DL Track] name=" + aigpy.path.getFileName(path) + "\nurl=" + stream.url)
-
-        tool = aigpy.download.DownloadTool(path + '.part', stream.urls)
-        tool.setUserProgress(userProgress)
-        tool.setPartSize(partSize)
-        check, err = tool.start(SETTINGS.showProgress and not SETTINGS.multiThread)
-        if not check:
-            Printf.err(f"DL Track '{track.title}' failed: {str(err)}")
-            return False, str(err)
-
-        # encrypted -> decrypt and remove encrypted file
-        __encrypted__(stream, path + '.part', path)
-
-        # contributors
+    for quality in qualities:
         try:
-            contributors = TIDAL_API.getTrackContributors(track.id)
-        except:
-            contributors = None
+            # Attempt to get the stream URL for the current quality
+            stream = TIDAL_API.getStreamUrl(track.id, quality)
+            path = getTrackPath(track, stream, album, playlist)
 
-        # lyrics
-        try:
-            lyrics = TIDAL_API.getLyrics(track.id).subtitles
-            if SETTINGS.lyricFile:
-                lrcPath = path.rsplit(".", 1)[0] + '.lrc'
-                aigpy.file.write(lrcPath, lyrics, 'w')
-        except:
+            if SETTINGS.showTrackInfo and not SETTINGS.multiThread:
+                Printf.track(track, stream)
+
+            if userProgress is not None:
+                userProgress.updateStream(stream)
+
+            # Log the download attempt
+            logging.info(f"[DL Track] name={aigpy.path.getFileName(path)}\nurl={stream.url}")
+
+            # Initialize the download tool
+            tool = aigpy.download.DownloadTool(path + '.part', stream.urls)
+            tool.setUserProgress(userProgress)
+            tool.setPartSize(partSize)
+            check, err = tool.start(SETTINGS.showProgress and not SETTINGS.multiThread)
+
+            if not check:
+                raise Exception(f"Download failed: {str(err)}")
+
+            # Decrypt the downloaded file if it's encrypted
+            __encrypted__(stream, path + '.part', path)
+
+            # Fetch contributors
+            try:
+                contributors = TIDAL_API.getTrackContributors(track.id)
+            except Exception as e:
+                logging.warning(f"Failed to get contributors for track '{track.title}': {e}")
+                contributors = None
+
+            # Fetch lyrics
             lyrics = ''
 
-        __setMetaData__(track, album, path, contributors, lyrics)
-        Printf.success(track.title)
+            # Set metadata for the downloaded track
+            __setMetaData__(track, album, path, contributors, lyrics)
+            Printf.success(f"Downloaded '{track.title}' with quality '{quality}'")
+            return True, ''
 
-        return True, ''
-    except Exception as e:
-        Printf.err(f"DL Track '{track.title}' failed: {str(e)}")
-        return False, str(e)
+        except Exception as e:
+            # Log the error for this quality attempt
+            logging.error(f"Failed to download '{track.title}' with quality '{quality}': {e}")
+            last_error = str(e)
+            # Continue to try the next lower quality
+            continue
+
+    # After all quality attempts have failed
+    Printf.err(f"All download attempts failed for track '{track.title}'. Last error: {last_error}")
+    return False, last_error
+
 
 
 def downloadTracks(tracks, album: Album = None, playlist: Playlist = None):
