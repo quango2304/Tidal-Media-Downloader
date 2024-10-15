@@ -1,5 +1,5 @@
 ## Note:
-- to download a url: python TIDALDL-PY/tidal_dl/__init__.py -l <url>
+- to download a url: python TIDALDL-PY/tidal_dl/__init__.py -l url
 - can enable multiThread to true to download playlist faster in .tidal-dl.json
 
 <br>
